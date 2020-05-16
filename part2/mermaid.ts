@@ -1,8 +1,10 @@
-import { Exp, VarDecl,AppExp, ProcExp, LetExp, LitExp, Parsed, isAtomicExp, AtomicExp, isNumExp, isBoolExp, isStrExp, isVarRef, isPrimOp, isProcExp, isDefineExp, isIfExp, isLetExp, isLetrecExp, isLitExp, isAppExp, DefineExp, isCompoundExp, CompoundExp, IfExp, isVarDecl, parseL4Exp } from "./L4-ast";
+import { Exp, VarDecl,AppExp, ProcExp, LetExp, LitExp, Parsed, isAtomicExp, AtomicExp, isNumExp, isBoolExp, isStrExp, isVarRef, isPrimOp, isProcExp, isDefineExp, isIfExp, isLetExp, isLetrecExp, isLitExp, isAppExp, DefineExp, isCompoundExp, CompoundExp, IfExp, isVarDecl, parseL4Exp, Program, isProgram } from "./L4-ast";
 import { Node, Graph, makeGraph, AtomicGraph, makeAtomicGraph, makeNodeDecl, makeEdge, Edge, NodeDecl, makeCompoundGraph, GraphContent, CompoundGraph, NodeRef, makeNodeRef, isNodeDecl, isAtomicGraph, isNodeRef, isCompoundGraph } from "./mermaid-ast";
 import { Result, makeOk, bind, makeFailure, safe3, safe2, mapResult } from "../shared/result";
 import { parse as p } from "../shared/parser";
+import { map } from "ramda";
 
+/* Q2.3 */
 export const L4toMermaid = (concrete: string): Result<string> =>
     bind(bind(bind(p(concrete), parseL4Exp), mapL4toMermaid), unparseMermaid);
 
@@ -22,59 +24,53 @@ const unparseNode = (node: Node): Result<string> =>
 const unparseEdge = (edge: Edge): Result<string> => 
     edge.label === undefined ? safe2((from: string, to: string) => makeOk(`${from} --> ${to}`))(unparseNode(edge.from), unparseNode(edge.to)) :
     safe2((from: string, to: string) => makeOk(`${from} -->|${edge.label}| ${to}`))(unparseNode(edge.from), unparseNode(edge.to));
+/* Q2.3 end */
 
+/* Q2.2 */
+export const mapL4toMermaid = (exp: Parsed): Result<Graph> => 
+    isProgram(exp) ? makeFailure("") : //bind(mapResult((e: Exp) => mapL4ToGraphContent(e,makeIdGen()), exp.exps), 
+        //(content: GraphContent[]) => makeOk(makeGraph("TD", makeCompoundGraph(map((content: GraphContent): => ))))):
+    bind(mapL4ToGraphContent(exp, makeIdGen()), (content: GraphContent) => makeOk(makeGraph("TD", content)));
 
-export const mapL4toMermaid = (exp: Parsed): Result<Graph> => {
-    const idGen = makeIdGen();
-    return isAtomicExp(exp) ? bind(L4AtomicToNode(exp, idGen), (node: NodeDecl) => makeOk(makeGraph("TD", makeAtomicGraph(node)))) :
-    isCompoundExp(exp) || isDefineExp(exp) ? bind(mapL4toMermaidCompoundExp(exp, makeNodeDecl(idGen(exp.tag), exp.tag), idGen),
-        (edges: Edge[]) => makeOk(makeGraph("TD", makeCompoundGraph(edges)))) :
-    makeFailure("");
-
-}
-
-const mapL4toMermaidCompoundExp = (exp: CompoundExp | DefineExp, head: Node, idGen: IdGen): Result<Edge[]> =>
-    isDefineExp(exp) ? L4DefineToNode(exp, head, idGen) :
-    isIfExp(exp) ? L4IfExpToNode(exp, head, idGen) :
-    isProcExp(exp) ? L4ProcExpToNode(exp, head, idGen) :
-    isAppExp(exp) ? L4AppExpToNode(exp, head, idGen) :
-    isLetExp(exp) ? L4LetExpToNode(exp, head, idGen) :
-    isLitExp(exp) ? L4LitExpToNode(exp, head, idGen) :
+const mapL4ToGraphContent = (exp: Exp | VarDecl, idGen: IdGen): Result<GraphContent> =>
+    isAtomicExp(exp) || isVarDecl(exp) ? mapL4AtomicToAtomicGraph(exp, idGen) :
+    isDefineExp(exp) ? L4DefineToNode(exp, idGen) :
+    isIfExp(exp) ? L4IfExpToNode(exp, idGen) :
+    isProcExp(exp) ? L4ProcExpToNode(exp, idGen) :
+    isAppExp(exp) ? L4AppExpToNode(exp, idGen) :
+    isLetExp(exp) ? L4LetExpToNode(exp, idGen) :
+    isLitExp(exp) ? L4LitExpToNode(exp, idGen) :
     makeFailure("Bad AST");
 
-const L4AtomicToNode = (exp: AtomicExp | VarDecl, IdGen: IdGen): Result<NodeDecl> => 
-    isNumExp(exp) ? makeOk(makeNodeDecl(IdGen(exp.tag), `"${exp.tag}(${exp.val})"`)) :
-    isBoolExp(exp) ? makeOk(makeNodeDecl(IdGen(exp.tag), `"${exp.tag}(${exp.val})"`)) :  
-    isStrExp(exp) ? makeOk(makeNodeDecl(IdGen(exp.tag), `"${exp.tag}(${exp.val})"`)) :
-    isVarRef(exp) ? makeOk(makeNodeDecl(IdGen(exp.tag), `"${exp.tag}(${exp.var})"`)) :
-    isPrimOp(exp) ? makeOk(makeNodeDecl(IdGen(exp.tag), `"${exp.tag}(${exp.op})"`)) :
-    isVarDecl(exp) ? makeOk(makeNodeDecl(IdGen(exp.tag), `"${exp.tag}(${exp.var})"`)) :
+const mapL4AtomicToAtomicGraph = (exp: AtomicExp | VarDecl, idGen: IdGen): Result<AtomicGraph> =>
+    isNumExp(exp) ? makeOk(makeAtomicGraph(makeNodeDecl(idGen(exp.tag), `"${exp.tag}(${exp.val})"`))) :
+    isBoolExp(exp) ? makeOk(makeAtomicGraph(makeNodeDecl(idGen(exp.tag), `"${exp.tag}(${exp.val})"`))) :  
+    isStrExp(exp) ? makeOk(makeAtomicGraph(makeNodeDecl(idGen(exp.tag), `"${exp.tag}(${exp.val})"`))) :
+    isVarRef(exp) ? makeOk(makeAtomicGraph(makeNodeDecl(idGen(exp.tag), `"${exp.tag}(${exp.var})"`))) :
+    isPrimOp(exp) ? makeOk(makeAtomicGraph(makeNodeDecl(idGen(exp.tag), `"${exp.tag}(${exp.op})"`))) :
+    isVarDecl(exp) ? makeOk(makeAtomicGraph(makeNodeDecl(idGen(exp.tag), `"${exp.tag}(${exp.var})"`))) :
     makeFailure("not a valid AtomicExp"); // not suppose to reach here
 
-const L4DefineToNode = (exp: DefineExp, head: Node, idGen: IdGen): Result<Edge[]> => {
-    const headRef = isNodeDecl(head) ? declToRef(head) : head;
-    if (isAtomicExp(exp.val)) {
-        return safe2((varNode: NodeDecl, valNode: NodeDecl): Result<Edge[]> => 
-        makeOk([makeEdge(head, varNode, 'var'), makeEdge(headRef, valNode, 'val')]))(L4AtomicToNode(exp.var, idGen), L4AtomicToNode(exp.val, idGen))
-    }
-    if (isCompoundExp(exp.val)) { 
-        const valNodeDecl: NodeDecl = makeNodeDecl(idGen(exp.val.tag), exp.tag);
-        safe2((varNode: NodeDecl, valSubGraph: Edge[]): Result<Edge[]> => 
-        makeOk([makeEdge(head, varNode, 'var'), makeEdge(headRef, valNodeDecl, 'val')].concat(valSubGraph)))
-            (L4AtomicToNode(exp.var, idGen), mapL4toMermaidCompoundExp(exp.val, declToRef(valNodeDecl), idGen));
-    }
-    return makeFailure("Bad AST");
-}
 
-const L4IfExpToNode = (exp: IfExp, head: Node, idGen: IdGen): Result<Edge[]> => makeFailure("not implmented");
+const L4DefineToNode = (exp: DefineExp, idGen: IdGen): Result<CompoundGraph> => 
+    safe2((varSubGraph: GraphContent, valSubGraph: GraphContent): Result<CompoundGraph> => {
+        const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
+        return makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root), varSubGraph.nodeDecl, 'var'),
+            makeEdge(declToRef(root), valSubGraph.nodeDecl, 'val')]
+            .concat(varSubGraph.edges).concat(valSubGraph.edges)));
+    })
+    (mapL4ToGraphContent(exp.var, idGen), mapL4ToGraphContent(exp.val, idGen))
 
-const L4ProcExpToNode = (exp: ProcExp, head: Node, idGen: IdGen): Result<Edge[]> => makeFailure("not implmented");
+const L4IfExpToNode = (exp: IfExp, idGen: IdGen): Result<CompoundGraph> => makeFailure("");
+    
 
-const L4AppExpToNode = (exp: AppExp, head: Node, idGen: IdGen): Result<Edge[]> => makeFailure("not implmented");
+const L4ProcExpToNode = (exp: ProcExp, idGen: IdGen): Result<CompoundGraph> => makeFailure("not implmented");
 
-const L4LetExpToNode = (exp: LetExp, head: Node, idGen: IdGen): Result<Edge[]> => makeFailure("not implmented");
+const L4AppExpToNode = (exp: AppExp, idGen: IdGen): Result<CompoundGraph> => makeFailure("not implmented");
 
-const L4LitExpToNode = (exp: LitExp, head: Node, idGen: IdGen): Result<Edge[]> => makeFailure("not implmented");
+const L4LetExpToNode = (exp: LetExp, idGen: IdGen): Result<CompoundGraph> => makeFailure("not implmented");
+
+const L4LitExpToNode = (exp: LitExp, idGen: IdGen): Result<CompoundGraph> => makeFailure("not implmented");
 
 const declToRef = (node: NodeDecl): NodeRef => makeNodeRef(node.id);
 
@@ -145,6 +141,7 @@ const makeIdGen = (): (v: string) => string => {
     };
 };
 
+/* Q2.2 end */
 
 // a function that parses nodes that aren't the first
 // const compoundExpToEdges = (exp: CompoundExp | DefineExp, head: NodeRef, idGen: IdGen): Result<Edge[]> => 
@@ -165,3 +162,45 @@ const makeIdGen = (): (v: string) => string => {
     // isLetExp(exp) ? bind(L4LetExpToNode(exp, head, idGen), (edges: Edge[]) => makeOk(makeCompoundGraph(edges))) :
     // isLitExp(exp) ? bind(L4LitExpToNode(exp, head, idGen), (edges: Edge[]) => makeOk(makeCompoundGraph(edges))) :
     // makeFailure("Bad AST");
+
+// previous version of L4DefineExpToNode
+//     const headRef = isNodeDecl(head) ? declToRef(head) : head;
+//     if (isAtomicExp(exp.val)) {
+//         return safe2((varNode: NodeDecl, valNode: NodeDecl): Result<Edge[]> => 
+//         makeOk([makeEdge(head, varNode, 'var'), makeEdge(headRef, valNode, 'val')]))(L4AtomicToNode(exp.var, idGen), L4AtomicToNode(exp.val, idGen))
+//     }
+//     if (isCompoundExp(exp.val)) { 
+//         const valNodeDecl: NodeDecl = makeNodeDecl(idGen(exp.val.tag), exp.tag);
+//         safe2((varNode: NodeDecl, valSubGraph: Edge[]): Result<Edge[]> => 
+//         makeOk([makeEdge(head, varNode, 'var'), makeEdge(headRef, valNodeDecl, 'val')].concat(valSubGraph)))
+//             (L4AtomicToNode(exp.var, idGen), mapL4toMermaidCompoundExp(exp.val, declToRef(valNodeDecl), idGen));
+//     }
+//     return makeFailure("Bad AST");
+// }
+
+
+    // const idGen = makeIdGen();
+    // return isAtomicExp(exp) ? bind(L4AtomicToNode(exp, idGen), (node: NodeDecl) => makeOk(makeGraph("TD", makeAtomicGraph(node)))) :
+    // isCompoundExp(exp) || isDefineExp(exp) ? bind(mapL4toMermaidCompoundExp(exp, makeNodeDecl(idGen(exp.tag), exp.tag), idGen),
+    //     (edges: Edge[]) => makeOk(makeGraph("TD", makeCompoundGraph(edges)))) :
+    // makeFailure("");
+
+// }
+
+// const mapL4toMermaidCompoundExp = (exp: CompoundExp | DefineExp, head: Node, idGen: IdGen): Result<Edge[]> =>
+//     isDefineExp(exp) ? L4DefineToNode(exp, head, idGen) :
+//     isIfExp(exp) ? L4IfExpToNode(exp, head, idGen) :
+//     isProcExp(exp) ? L4ProcExpToNode(exp, head, idGen) :
+//     isAppExp(exp) ? L4AppExpToNode(exp, head, idGen) :
+//     isLetExp(exp) ? L4LetExpToNode(exp, head, idGen) :
+//     isLitExp(exp) ? L4LitExpToNode(exp, head, idGen) :
+//     makeFailure("Bad AST");
+
+// const L4AtomicToNode = (exp: AtomicExp | VarDecl, IdGen: IdGen): Result<NodeDecl> => 
+//     isNumExp(exp) ? makeOk(makeNodeDecl(IdGen(exp.tag), `"${exp.tag}(${exp.val})"`)) :
+//     isBoolExp(exp) ? makeOk(makeNodeDecl(IdGen(exp.tag), `"${exp.tag}(${exp.val})"`)) :  
+//     isStrExp(exp) ? makeOk(makeNodeDecl(IdGen(exp.tag), `"${exp.tag}(${exp.val})"`)) :
+//     isVarRef(exp) ? makeOk(makeNodeDecl(IdGen(exp.tag), `"${exp.tag}(${exp.var})"`)) :
+//     isPrimOp(exp) ? makeOk(makeNodeDecl(IdGen(exp.tag), `"${exp.tag}(${exp.op})"`)) :
+//     isVarDecl(exp) ? makeOk(makeNodeDecl(IdGen(exp.tag), `"${exp.tag}(${exp.var})"`)) :
+//     makeFailure("not a valid AtomicExp"); // not suppose to reach here

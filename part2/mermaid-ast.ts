@@ -18,16 +18,16 @@ export type Dir = "TD" | "LR";
 export type Node = NodeDecl | NodeRef
 
 export interface Graph {tag: "Graph", dir: Dir, content: GraphContent}
-export interface AtomicGraph {tag: "AtomicGraph", nodeDecl: NodeDecl}
-export interface CompoundGraph {tag: "CompoundGraph", edges: Edge[]}
+export interface AtomicGraph {tag: "AtomicGraph", nodeDecl: NodeDecl, edges: []}
+export interface CompoundGraph {tag: "CompoundGraph", nodeDecl: NodeDecl, edges: Edge[]}
 export interface Edge {tag: "Edge", from: Node, to: Node, label?: string}
 export interface NodeDecl {tag: "NodeDecl", id: string, label: string}
 export interface NodeRef {tag: "NodeRef", id: string}
 
 // constructors
 export const makeGraph = (dir: Dir, content: GraphContent): Graph => ({tag: "Graph", dir: dir, content: content});
-export const makeAtomicGraph = (nodeDecl: NodeDecl): AtomicGraph => ({tag: "AtomicGraph", nodeDecl: nodeDecl});
-export const makeCompoundGraph = (edges: Edge[]): CompoundGraph => ({tag: "CompoundGraph", edges: edges});
+export const makeAtomicGraph = (nodeDecl: NodeDecl): AtomicGraph => ({tag: "AtomicGraph", nodeDecl: nodeDecl, edges: []});
+export const makeCompoundGraph = (nodeDecl: NodeDecl, edges: Edge[]): CompoundGraph => ({tag: "CompoundGraph", nodeDecl: nodeDecl, edges: edges});
 export const makeEdge = (form: Node, to: Node, label?: string): Edge => ({tag: "Edge", from: form, to: to, label: label});
 export const makeNodeDecl = (id: string, label: string): NodeDecl => ({tag: "NodeDecl", id: id, label: label});
 export const makeNodeRef = (id: string): NodeRef => ({tag: "NodeRef", id: id});
