@@ -1,8 +1,8 @@
-import { Exp, VarDecl,AppExp, ProcExp, LetExp, LitExp, Parsed, isAtomicExp, AtomicExp, isNumExp, isBoolExp, isStrExp, isVarRef, isPrimOp, isProcExp, isDefineExp, isIfExp, isLetExp, isLetrecExp, isLitExp, isAppExp, DefineExp, isCompoundExp, CompoundExp, IfExp, isVarDecl, parseL4Exp, Program, isProgram } from "./L4-ast";
+import { Exp, VarDecl,AppExp, ProcExp, LetExp, LitExp, Parsed, isAtomicExp, AtomicExp, isNumExp, isBoolExp, isStrExp, isVarRef, isPrimOp, isProcExp, isDefineExp, isIfExp, isLetExp, isLetrecExp, isLitExp, isAppExp, DefineExp, isCompoundExp, CompoundExp, IfExp, isVarDecl, parseL4Exp, Program, isProgram, CExp } from "./L4-ast";
 import { Node, Graph, makeGraph, AtomicGraph, makeAtomicGraph, makeNodeDecl, makeEdge, Edge, NodeDecl, makeCompoundGraph, GraphContent, CompoundGraph, NodeRef, makeNodeRef, isNodeDecl, isAtomicGraph, isNodeRef, isCompoundGraph } from "./mermaid-ast";
 import { Result, makeOk, bind, makeFailure, safe3, safe2, mapResult } from "../shared/result";
 import { parse as p } from "../shared/parser";
-import { map } from "ramda";
+import { map, reduce, concat } from "ramda";
 
 /* Q2.3 */
 export const L4toMermaid = (concrete: string): Result<string> =>
@@ -64,7 +64,23 @@ const L4DefineToNode = (exp: DefineExp, idGen: IdGen): Result<CompoundGraph> =>
 const L4IfExpToNode = (exp: IfExp, idGen: IdGen): Result<CompoundGraph> => makeFailure("");
     
 
-const L4ProcExpToNode = (exp: ProcExp, idGen: IdGen): Result<CompoundGraph> => makeFailure("not implmented");
+const L4ProcExpToNode = (exp: ProcExp, idGen: IdGen): Result<CompoundGraph> => 
+    safe2((args: GraphContent, body: GraphContent): Result<CompoundGraph> => {
+        const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
+        return makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root), args.nodeDecl, 'args'), makeEdge(declToRef(root), body.nodeDecl, 'body')].concat(args.edges).concat(body.edges)));
+    })
+    (bind(mapResult((e: VarDecl) => mapL4ToGraphContent(e, idGen), exp.args), (args: GraphContent[]) => {
+        const root: NodeDecl = makeNodeDecl(idGen('Args'), ':');
+        return makeOk(makeCompoundGraph(root, reduce((acc: Edge[], curr: Edge[]) => acc.concat(curr),
+            map((g: GraphContent) => makeEdge(declToRef(root), g.nodeDecl), args),
+            map((g): Edge[] => g.edges, args))))
+    }), 
+    bind(mapResult((e: CExp) => mapL4ToGraphContent(e, idGen), exp.body), (exps: GraphContent[]) => {
+        const root: NodeDecl = makeNodeDecl(idGen('Body'), ':');
+        return makeOk(makeCompoundGraph(root, reduce((acc: Edge[], curr: Edge[]) => acc.concat(curr),
+            map((g: GraphContent) => makeEdge(declToRef(root), g.nodeDecl), exps),
+            map((g): Edge[] => g.edges, exps))))
+    }));
 
 const L4AppExpToNode = (exp: AppExp, idGen: IdGen): Result<CompoundGraph> => makeFailure("not implmented");
 
@@ -88,6 +104,10 @@ const makeIdGen = (): (v: string) => string => {
     let countProcExp: number = 0;
     let countLetExp: number = 0;
     let countLitExp: number = 0;
+    let countBody: number = 0;
+    let countArgs: number = 0;
+    let countRands: number = 0;
+    let countBindings: number = 0;
     return (v: string) => {
         if (v === "NumExp"){
             countNumExp++;
@@ -136,6 +156,22 @@ const makeIdGen = (): (v: string) => string => {
         if (v === "LitExp"){
             countLitExp++;
             return `${v}_${countLitExp}`;
+        }
+        if (v === "Body"){
+            countBody++;
+            return `${v}_${countBody}`;
+        }
+        if (v === "Args"){
+            countArgs++;
+            return `${v}_${countArgs}`;
+        }
+        if (v === "Rands"){
+            countRands++;
+            return `${v}_${countRands}`;
+        }
+        if (v === "Bindings"){
+            countBindings++;
+            return `${v}_${countBindings}`;
         }
         return "";
     };
