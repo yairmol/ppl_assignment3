@@ -3,6 +3,9 @@ import { Node, Graph, makeGraph, AtomicGraph, makeAtomicGraph, makeNodeDecl, mak
 import { Result, makeOk, bind, makeFailure, safe3, safe2, mapResult } from "../shared/result";
 import { parse as p } from "../shared/parser";
 import { map, reduce, concat } from "ramda";
+import { cons } from "../shared/list";
+import { SExpValue } from "./L4-value";
+import { isSymbolSExp, isEmptySExp, isCompoundSExp, isClosure } from "./L4-value";
 
 /* Q2.3 */
 export const L4toMermaid = (concrete: string): Result<string> =>
@@ -75,7 +78,8 @@ const L4IfExpToNode = (exp: IfExp, idGen: IdGen): Result<CompoundGraph> =>
 const L4ProcExpToNode = (exp: ProcExp, idGen: IdGen): Result<CompoundGraph> => 
     safe2((args: GraphContent, body: GraphContent): Result<CompoundGraph> => {
         const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
-        return makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root), args.nodeDecl, 'args'), makeEdge(declToRef(root), body.nodeDecl, 'body')].concat(args.edges).concat(body.edges)));
+        return makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root), args.nodeDecl, 'args'),
+         makeEdge(declToRef(root), body.nodeDecl, 'body')].concat(args.edges).concat(body.edges)));
     })
     (bind(mapResult((e: VarDecl) => mapL4ToGraphContent(e, idGen), exp.args), (args: GraphContent[]) => {
         const root: NodeDecl = makeNodeDecl(idGen('Args'), ':');
@@ -91,14 +95,47 @@ const L4ProcExpToNode = (exp: ProcExp, idGen: IdGen): Result<CompoundGraph> =>
             map((g): Edge[] => g.edges, exps))))
     }));
 
-const L4AppExpToNode = (exp: AppExp, idGen: IdGen): Result<CompoundGraph> => makeFailure("not implmented");
+const L4AppExpToNode = (exp: AppExp, idGen: IdGen): Result<CompoundGraph> => 
+    safe2((rator: GraphContent, rands: GraphContent): Result<CompoundGraph> => {
+        const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
+        return makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root), rator.nodeDecl, 'rator'),
+         makeEdge(declToRef(root), rands.nodeDecl, 'rands')].concat(rator.edges).concat(rands.edges)));
+    })
+    (mapL4ToGraphContent(exp.rator, idGen), 
+    bind(mapResult((e: CExp) => mapL4ToGraphContent(e, idGen), exp.rands), (exps: GraphContent[]) => {
+        const root: NodeDecl = makeNodeDecl(idGen('rands'), ':');
+        return makeOk(makeCompoundGraph(root, 
+            reduce((acc: Edge[], curr: Edge[]) => acc.concat(curr),
+            map((g: GraphContent) => makeEdge(declToRef(root), g.nodeDecl), exps),
+            map((g): Edge[] => g.edges, exps))))
+    }));
+
 
 const L4LetExpToNode = (exp: LetExp, idGen: IdGen): Result<CompoundGraph> => makeFailure("not implmented");
 
-const L4LitExpToNode = (exp: LitExp, idGen: IdGen): Result<CompoundGraph> => makeFailure("not implmented");
+const L4LitExpToNode = (exp: LitExp, idGen: IdGen): Result<CompoundGraph> => 
+    bind(mapSexpToNode(exp.val, idGen), (exp: GraphContent) => {
+        const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
+        return makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root),exp.nodeDecl, 'val')].concat(exp.edges)))
+    })
 
 const declToRef = (node: NodeDecl): NodeRef => makeNodeRef(node.id);
 
+const mapSexpToNode = (val: SExpValue, idGen: IdGen):Result<GraphContent> => 
+    (typeof val === 'number') ? makeOk(makeAtomicGraph(makeNodeDecl(idGen('number'), 'number'))):
+    (typeof val === 'boolean') ? makeOk(makeAtomicGraph(makeNodeDecl(idGen('boolean'), 'boolean'))):
+    (typeof val === 'string') ? makeOk(makeAtomicGraph(makeNodeDecl(idGen('string'), 'string'))):
+    isPrimOp(val) ? makeOk(makeAtomicGraph(makeNodeDecl(idGen('PrimOp'), 'PrimOp'))):
+    isSymbolSExp(val) ? makeOk(makeAtomicGraph(makeNodeDecl(idGen('SymbolSExp'), 'SymbolSExp'))):
+    isEmptySExp(val) ? makeOk(makeAtomicGraph(makeNodeDecl(idGen('EmptySExp'), 'EmptySExp'))):
+    isCompoundSExp(val) ? safe2((val1: GraphContent, val2: GraphContent): Result<GraphContent> => {
+        const root: NodeDecl = makeNodeDecl(idGen(val.tag), val.tag);
+        return makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root), val1.nodeDecl, 'val1'),
+         makeEdge(declToRef(root), val2.nodeDecl, 'val2')].concat(val1.edges).concat(val2.edges)));
+    })(mapSexpToNode(val.val1, idGen), mapSexpToNode(val.val2, idGen)):
+    makeFailure("not valid SExpValue")
+
+   
 type IdGen = (v: string) => string;
 const makeIdGen = (): (v: string) => string => {
     let countNumExp: number = 0;
