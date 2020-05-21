@@ -51,6 +51,7 @@ const mapL4AtomicToAtomicGraph = (exp: AtomicExp | VarDecl, idGen: IdGen): Resul
     isVarDecl(exp) ? makeOk(makeAtomicGraph(makeNodeDecl(idGen(exp.tag), `"${exp.tag}(${exp.var})"`))) :
     makeFailure("not a valid AtomicExp"); // not suppose to reach here
 
+
 const L4DefineToNode = (exp: DefineExp, idGen: IdGen): Result<CompoundGraph> => 
     safe2((varSubGraph: GraphContent, valSubGraph: GraphContent): Result<CompoundGraph> => {
         const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
@@ -70,8 +71,10 @@ const L4IfExpToNode = (exp: IfExp, idGen: IdGen): Result<CompoundGraph> =>
     })
     (mapL4ToGraphContent(exp.test, idGen), mapL4ToGraphContent(exp.then, idGen), mapL4ToGraphContent(exp.alt, idGen));
     
+
 const L4ProcExpToNode = (exp: ProcExp, idGen: IdGen): Result<CompoundGraph> => 
     safe2((args: GraphContent, body: GraphContent): Result<CompoundGraph> => {
+        console.log("procexp");
         const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
         return makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root), args.nodeDecl, 'args'), makeEdge(declToRef(root), body.nodeDecl, 'body')].concat(args.edges).concat(body.edges)));
     })
