@@ -61,7 +61,15 @@ const L4DefineToNode = (exp: DefineExp, idGen: IdGen): Result<CompoundGraph> =>
     })
     (mapL4ToGraphContent(exp.var, idGen), mapL4ToGraphContent(exp.val, idGen))
 
-const L4IfExpToNode = (exp: IfExp, idGen: IdGen): Result<CompoundGraph> => makeFailure("");
+const L4IfExpToNode = (exp: IfExp, idGen: IdGen): Result<CompoundGraph> => 
+    safe3((test: GraphContent, then: GraphContent, alt: GraphContent): Result<CompoundGraph> => {
+        const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
+        return makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root), test.nodeDecl, 'test'),
+            makeEdge(declToRef(root), then.nodeDecl, 'then'),
+            makeEdge(declToRef(root), alt.nodeDecl, 'alt')]
+            .concat(test.edges).concat(then.edges).concat(test.edges)));
+    })
+    (mapL4ToGraphContent(exp.test, idGen), mapL4ToGraphContent(exp.then, idGen), mapL4ToGraphContent(exp.alt, idGen));
     
 
 const L4ProcExpToNode = (exp: ProcExp, idGen: IdGen): Result<CompoundGraph> => 
