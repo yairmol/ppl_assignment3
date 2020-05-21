@@ -77,7 +77,8 @@ const L4ProcExpToNode = (exp: ProcExp, idGen: IdGen): Result<CompoundGraph> =>
     }), 
     bind(mapResult((e: CExp) => mapL4ToGraphContent(e, idGen), exp.body), (exps: GraphContent[]) => {
         const root: NodeDecl = makeNodeDecl(idGen('Body'), ':');
-        return makeOk(makeCompoundGraph(root, reduce((acc: Edge[], curr: Edge[]) => acc.concat(curr),
+        return makeOk(makeCompoundGraph(root, 
+            reduce((acc: Edge[], curr: Edge[]) => acc.concat(curr),
             map((g: GraphContent) => makeEdge(declToRef(root), g.nodeDecl), exps),
             map((g): Edge[] => g.edges, exps))))
     }));

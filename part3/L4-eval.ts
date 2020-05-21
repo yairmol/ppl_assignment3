@@ -8,7 +8,7 @@ import { isBoolExp, isCExp, isLitExp, isNumExp, isPrimOp, isStrExp, isVarRef,
          isAppExp, isDefineExp, isIfExp, isLetrecExp, isLetExp, isProcExp,
          Binding, VarDecl, CExp, Exp, IfExp, LetrecExp, LetExp, ProcExp, Program,
          parseL4Exp} from "./L4-ast";
-import { applyEnv, makeEmptyEnv, makeExtEnv, makeRecEnv, Env } from "./L4-env";
+import { applyEnv, makeEmptyEnv, makeExtEnv, makeRecEnv, Env } from "./L4-env-normal";
 import { isClosure, makeClosure, Closure, Value } from "./L4-value";
 import { applyPrimitive } from "./evalPrimitive";
 import { allT, first, rest, isEmpty } from "../shared/list";
