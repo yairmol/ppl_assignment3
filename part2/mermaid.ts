@@ -1,4 +1,4 @@
-import { Exp, VarDecl,AppExp, ProcExp, LetExp, LitExp, Parsed, isAtomicExp, AtomicExp, isNumExp, isBoolExp, isStrExp, isVarRef, isPrimOp, isProcExp, isDefineExp, isIfExp, isLetExp, isLetrecExp, isLitExp, isAppExp, DefineExp, isCompoundExp, CompoundExp, IfExp, isVarDecl, parseL4Exp, Program, isProgram, CExp, LetrecExp, Binding } from "./L4-ast";
+import { Exp, VarDecl,AppExp, ProcExp, LetExp, LitExp, Parsed, isAtomicExp, AtomicExp, isNumExp, isBoolExp, isStrExp, isVarRef, isPrimOp, isProcExp, isDefineExp, isIfExp, isLetExp, isLetrecExp, isLitExp, isAppExp, DefineExp, isCompoundExp, CompoundExp, IfExp, isVarDecl, parseL4Exp, Program, isProgram, CExp, LetrecExp, Binding, SetExp, isSetExp } from "./L4-ast";
 import { Node, Graph, makeGraph, AtomicGraph, makeAtomicGraph, makeNodeDecl, makeEdge, Edge, NodeDecl, makeCompoundGraph, GraphContent, CompoundGraph, NodeRef, makeNodeRef, isNodeDecl, isAtomicGraph, isNodeRef, isCompoundGraph } from "./mermaid-ast";
 import { Result, makeOk, bind, makeFailure, safe3, safe2, mapResult } from "../shared/result";
 import { parse as p } from "../shared/parser";
@@ -34,12 +34,13 @@ export const mapL4toMermaid = (exp: Parsed): Result<Graph> =>
 
 const mapL4ToGraphContent = (exp: Exp | VarDecl, idGen: IdGen): Result<GraphContent> =>
     isAtomicExp(exp) || isVarDecl(exp) ? mapL4AtomicToAtomicGraph(exp, idGen) :
-    isDefineExp(exp) ? L4DefineToNode(exp, idGen) :
+    isDefineExp(exp) ? L4DefineSetBindToNode(exp, idGen) :
     isIfExp(exp) ? L4IfExpToNode(exp, idGen) :
     isProcExp(exp) ? L4ProcExpToNode(exp, idGen) :
     isAppExp(exp) ? L4AppExpToNode(exp, idGen) :
     isLetExp(exp) || isLetrecExp(exp )? L4LetExpToNode(exp, idGen) :
     isLitExp(exp) ? L4LitExpToNode(exp, idGen) :
+    isSetExp(exp) ? L4DefineSetBindToNode(exp, idGen) :
     makeFailure("Bad AST");
 
 const mapL4AtomicToAtomicGraph = (exp: AtomicExp | VarDecl, idGen: IdGen): Result<AtomicGraph> =>
@@ -51,7 +52,7 @@ const mapL4AtomicToAtomicGraph = (exp: AtomicExp | VarDecl, idGen: IdGen): Resul
     isVarDecl(exp) ? makeOk(makeAtomicGraph(makeNodeDecl(idGen(exp.tag), `"${exp.tag}(${exp.var})"`))) :
     makeFailure("not a valid AtomicExp"); // not suppose to reach here
 
-const L4DefineToNode = (exp: DefineExp, idGen: IdGen): Result<CompoundGraph> => 
+const L4DefineSetBindToNode = (exp: DefineExp | Binding | SetExp, idGen: IdGen): Result<CompoundGraph> => 
     safe2((varSubGraph: GraphContent, valSubGraph: GraphContent): Result<CompoundGraph> => {
         const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
         return makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root), varSubGraph.nodeDecl, 'var'),
@@ -97,7 +98,7 @@ const L4LetExpToNode = (exp: LetExp | LetrecExp, idGen: IdGen): Result<CompoundG
         return makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root), bindings.nodeDecl, 'bindings'),
             makeEdge(declToRef(root), body.nodeDecl, 'body')].concat(bindings.edges).concat(body.edges)));
     })
-    (bind(mapResult((b: Binding) => L4BindingToNode(b, idGen), exp.bindings), (bindings: GraphContent[]) => {
+    (bind(mapResult((b: Binding) => L4DefineSetBindToNode(b, idGen), exp.bindings), (bindings: GraphContent[]) => {
         const root: NodeDecl = makeNodeDecl(idGen('Bindings'), ':');
         return makeOk(makeCompoundGraph(root, reduce((acc: Edge[], curr: Edge[]) => acc.concat(curr),
             map((g: GraphContent) => makeEdge(declToRef(root), g.nodeDecl), bindings),
@@ -110,16 +111,8 @@ const L4LetExpToNode = (exp: LetExp | LetrecExp, idGen: IdGen): Result<CompoundG
             map((g): Edge[] => g.edges, exps))))
     }));
 
-const L4BindingToNode = (exp: Binding, idGen: IdGen): Result<CompoundGraph> => 
-    safe2((varSubGraph: GraphContent, valSubGraph: GraphContent): Result<CompoundGraph> => {
-        const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
-        return makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root), varSubGraph.nodeDecl, 'var'),
-            makeEdge(declToRef(root), valSubGraph.nodeDecl, 'val')]
-            .concat(varSubGraph.edges).concat(valSubGraph.edges)));
-    })
-    (mapL4ToGraphContent(exp.var, idGen), mapL4ToGraphContent(exp.val, idGen));
-
 const L4LitExpToNode = (exp: LitExp, idGen: IdGen): Result<CompoundGraph> => makeFailure("Lit not implmented");
+
 
 const declToRef = (node: NodeDecl): NodeRef => makeNodeRef(node.id);
 
@@ -140,7 +133,16 @@ const makeIdGen = (): (v: string) => string => {
     let countBody: number = 0;
     let countArgs: number = 0;
     let countRands: number = 0;
+    let countBinding: number = 0;
     let countBindings: number = 0;
+    let countLetRecExp: number = 0;
+    let countNumber: number = 0;
+    let countBoolean: number = 0;
+    let countString: number = 0;
+    let countSymbol: number=  0;
+    let countEmptySexp: number = 0;
+    let countPrimOp: number = 0;
+    let countCompSexp: number = 0;
     return (v: string) => {
         if (v === "NumExp"){
             countNumExp++;
@@ -186,6 +188,10 @@ const makeIdGen = (): (v: string) => string => {
             countLetExp++;
             return `${v}_${countLetExp}`;
         }
+        if (v === "LetRecExp"){
+            countLetRecExp++;
+            return `${v}_${countLetRecExp}`;
+        }
         if (v === "LitExp"){
             countLitExp++;
             return `${v}_${countLitExp}`;
@@ -202,9 +208,37 @@ const makeIdGen = (): (v: string) => string => {
             countRands++;
             return `${v}_${countRands}`;
         }
-        if (v === "Bindings"){
-            countBindings++;
-            return `${v}_${countBindings}`;
+        if (v === "Binding"){
+            countBinding++;
+            return `${v}_${countBinding}`;
+        }
+        if (v === "number"){
+            countNumber++;
+            return `${v}_${countNumber}`;
+        }
+        if (v === "boolean"){
+            countBoolean++;
+            return `${v}_${countBoolean}`;
+        }
+        if (v === "string"){
+            countString++;
+            return `${v}_${countString}`;
+        }
+        if (v === "SymbolSExp"){
+            countSymbol++;
+            return `${v}_${countSymbol}`;
+        }
+        if (v === "PrimOp"){
+            countPrimOp++;
+            return `${v}_${countPrimOp}`;
+        }
+        if (v === "EmptySExp"){
+            countEmptySexp++;
+            return `${v}_${countEmptySexp}`;
+        }
+        if (v === "CompoundSExp"){
+            countCompSexp++;
+            return `${v}_${countCompSexp}`;
         }
         return "";
     };
