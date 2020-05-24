@@ -14,52 +14,54 @@
 // The key operation on env is apply-env(var) which returns the value associated to var in env
 // or throw an error if var is not defined in env.
 
-import { VarDecl, CExp } from './L4-ast';
+import { VarDecl, CExp, ProcExp } from './L4-ast';
 import { makeClosure, Value } from './L4-value';
-import { Result, makeOk, makeFailure } from '../shared/result';
+import { Result, makeOk, makeFailure, bind } from '../shared/result';
+import { evalExps } from './L4-normal';
 
 // ========================================================
 // Environment data type
 export type Env = EmptyEnv | ExtEnv | RecEnv;
+export interface Pair {tag: "Pair", val: CExp, env: Env}
 export interface EmptyEnv {tag: "EmptyEnv" }
 export interface ExtEnv {
     tag: "ExtEnv";
     vars: string[];
-    vals: Value[];
+    vals: Pair[];
     nextEnv: Env;
 }
 export interface RecEnv {
     tag: "RecEnv";
     vars: string[];
-    paramss: VarDecl[][];
-    bodiess: CExp[][];
+    vals: ProcExp[],
     nextEnv: Env;
 }
 
+export const makePair = (val: CExp, env: Env): Pair => ({tag: "Pair", val: val, env: env}); 
 export const makeEmptyEnv = (): EmptyEnv => ({tag: "EmptyEnv"});
-export const makeExtEnv = (vs: string[], vals: Value[], env: Env): ExtEnv =>
+export const makeExtEnv = (vs: string[], vals: Pair[], env: Env): ExtEnv =>
     ({tag: "ExtEnv", vars: vs, vals: vals, nextEnv: env});
-export const makeRecEnv = (vs: string[], paramss: VarDecl[][], bodiess: CExp[][], env: Env): RecEnv =>
-    ({tag: "RecEnv", vars: vs, paramss: paramss, bodiess: bodiess, nextEnv: env});
+export const makeRecEnv = (vs: string[], vals: ProcExp[], env: Env): RecEnv =>
+    ({tag: "RecEnv", vars: vs, vals: vals, nextEnv: env});
 
 const isEmptyEnv = (x: any): x is EmptyEnv => x.tag === "EmptyEnv";
 const isExtEnv = (x: any): x is ExtEnv => x.tag === "ExtEnv";
 const isRecEnv = (x: any): x is RecEnv => x.tag === "RecEnv";
-
+const isPair = (x: any): x is Pair => x.tag === "Pair";
 export const isEnv = (x: any): x is Env => isEmptyEnv(x) || isExtEnv(x) || isRecEnv(x);
 
 // Apply-env
-export const applyEnv = (env: Env, v: string): Result<Value> =>
+export const applyEnv = (env: Env, v: string): Result<Pair> =>
     isEmptyEnv(env) ? makeFailure(`var not found ${v}`) :
     isExtEnv(env) ? applyExtEnv(env, v) :
-    applyRecEnv(env, v);
+    applyRecEnv(env, v)
 
-const applyExtEnv = (env: ExtEnv, v: string): Result<Value> =>
-    env.vars.includes(v) ? makeOk(env.vals[env.vars.indexOf(v)]) :
+const applyExtEnv = (env: ExtEnv, v: string): Result<Pair> => {
+    // console.log(v + "; " + env + "; " + env.vars.includes(v));
+    return env.vars.includes(v) ? makeOk(env.vals[env.vars.indexOf(v)]) :
     applyEnv(env.nextEnv, v);
+}
 
-const applyRecEnv = (env: RecEnv, v: string): Result<Value> =>
-    env.vars.includes(v) ? makeOk(makeClosure(env.paramss[env.vars.indexOf(v)],
-                                              env.bodiess[env.vars.indexOf(v)],
-                                              env)) :
+const applyRecEnv = (env: RecEnv, v: string): Result<Pair> =>
+    env.vars.includes(v) ? makeOk(makePair(env.vals[env.vars.indexOf(v)], env)) :
     applyEnv(env.nextEnv, v);

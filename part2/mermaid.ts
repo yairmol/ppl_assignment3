@@ -1,15 +1,18 @@
-import { Exp, VarDecl,AppExp, ProcExp, LetExp, LitExp, Parsed, isAtomicExp, AtomicExp, isNumExp, isBoolExp, isStrExp, isVarRef, isPrimOp, isProcExp, isDefineExp, isIfExp, isLetExp, isLetrecExp, isLitExp, isAppExp, DefineExp, isCompoundExp, CompoundExp, IfExp, isVarDecl, parseL4Exp, Program, isProgram, CExp, LetrecExp, Binding, SetExp, isSetExp } from "./L4-ast";
+import { Exp, VarDecl,AppExp, ProcExp, LetExp, LitExp, Parsed, isAtomicExp, AtomicExp, isNumExp, isBoolExp, isStrExp, isVarRef, isPrimOp, isProcExp, isDefineExp, isIfExp, isLetExp, isLetrecExp, isLitExp, isAppExp, DefineExp, isCompoundExp, CompoundExp, IfExp, isVarDecl, parseL4Exp, Program, isProgram, CExp, LetrecExp, Binding, SetExp, isSetExp, parseL4Program } from "./L4-ast";
 import { Node, Graph, makeGraph, AtomicGraph, makeAtomicGraph, makeNodeDecl, makeEdge, Edge, NodeDecl, makeCompoundGraph, GraphContent, CompoundGraph, NodeRef, makeNodeRef, isNodeDecl, isAtomicGraph, isNodeRef, isCompoundGraph } from "./mermaid-ast";
-import { Result, makeOk, bind, makeFailure, safe3, safe2, mapResult } from "../shared/result";
+import { Result, makeOk, bind, makeFailure, safe3, safe2, mapResult, isOk } from "../shared/result";
 import { parse as p } from "../shared/parser";
 import { map, reduce, concat } from "ramda";
-import { cons } from "../shared/list";
-import { SExpValue } from "./L4-value";
+import { cons, rest, first } from "../shared/list";
+import { SExpValue, CompoundSExp } from "./L4-value";
 import { isSymbolSExp, isEmptySExp, isCompoundSExp, isClosure } from "./L4-value";
+import { isArray } from "../shared/type-predicates";
+import { Sexp } from "s-expression";
 
 /* Q2.3 */
-export const L4toMermaid = (concrete: string): Result<string> =>
-    bind(bind(bind(p(concrete), parseL4Exp), mapL4toMermaid), unparseMermaid);
+export const L4toMermaid = (concrete: string): Result<string> => {
+    return bind(bind(bind(p(concrete), (sexp: Sexp): Result<Parsed> => isArray(sexp) && first(sexp) === 'L4' ? parseL4Program(sexp) : parseL4Exp(sexp)), mapL4toMermaid), unparseMermaid);
+}
 
 export const unparseMermaid = (exp: Graph): Result<string> => 
     bind(unparseGraphContent(exp.content), (content: string) => makeOk(`graph ${exp.dir}\n${content}`));
@@ -30,20 +33,27 @@ const unparseEdge = (edge: Edge): Result<string> =>
 /* Q2.3 end */
 
 /* Q2.2 */
-export const mapL4toMermaid = (exp: Parsed): Result<Graph> => 
-    isProgram(exp) ? makeFailure("") : //bind(mapResult((e: Exp) => mapL4ToGraphContent(e,makeIdGen()), exp.exps), 
-        //(content: GraphContent[]) => makeOk(makeGraph("TD", makeCompoundGraph(map((content: GraphContent): => ))))):
-    bind(mapL4ToGraphContent(exp, makeIdGen()), (content: GraphContent) => makeOk(makeGraph("TD", content)));
+export const mapL4toMermaid = (exp: Parsed): Result<Graph> =>
+    isProgram(exp) ? programToMermaid(exp) : 
+    bind(mapL4ToGraphContent(exp, makeIdGen(), true), (content: GraphContent) => makeOk(makeGraph("TD", content)));
 
-const mapL4ToGraphContent = (exp: Exp | VarDecl, idGen: IdGen): Result<GraphContent> =>
+const programToMermaid = (program: Program): Result<Graph> => {
+    const root: NodeDecl = makeNodeDecl("Program_1", "Program");
+    const edges_node: NodeDecl = makeNodeDecl("Exps_1", ":"); 
+    return bind(mapResult((e: Exp) => mapL4ToGraphContent(e, makeIdGen(), false), program.exps), (content: GraphContent[]) => 
+        makeOk(makeGraph("TD", makeCompoundGraph(root, reduce((acc: Edge[], curr: Edge[]) => acc.concat(curr),
+            [makeEdge(root, edges_node, "exps")].concat(map((g: GraphContent) => makeEdge(declToRef(edges_node), g.nodeDecl), content)),
+            map((gc: GraphContent) => gc.edges, content))))))
+}
+
+const mapL4ToGraphContent = (exp: Exp | VarDecl, idGen: IdGen, first: boolean): Result<GraphContent> =>
     isAtomicExp(exp) || isVarDecl(exp) ? mapL4AtomicToAtomicGraph(exp, idGen) :
-    isDefineExp(exp) ? L4DefineSetBindToNode(exp, idGen) :
-    isIfExp(exp) ? L4IfExpToNode(exp, idGen) :
-    isProcExp(exp) ? L4ProcExpToNode(exp, idGen) :
-    isAppExp(exp) ? L4AppExpToNode(exp, idGen) :
-    isLetExp(exp) || isLetrecExp(exp )? L4LetExpToNode(exp, idGen) :
-    isLitExp(exp) ? L4LitExpToNode(exp, idGen) :
-    isSetExp(exp) ? L4DefineSetBindToNode(exp, idGen) :
+    isDefineExp(exp) || isSetExp(exp) ? L4DefineSetBindToNode(exp, idGen, first) :
+    isIfExp(exp) ? L4IfExpToNode(exp, idGen, first) :
+    isProcExp(exp) ? L4ProcExpToNode(exp, idGen, first) :
+    isAppExp(exp) ? L4AppExpToNode(exp, idGen, first) :
+    isLetExp(exp) || isLetrecExp(exp )? L4LetExpToNode(exp, idGen, first) :
+    isLitExp(exp) ? L4LitExpToNode(exp, idGen, first) :
     makeFailure("Bad AST");
 
 const mapL4AtomicToAtomicGraph = (exp: AtomicExp | VarDecl, idGen: IdGen): Result<AtomicGraph> =>
@@ -55,102 +65,111 @@ const mapL4AtomicToAtomicGraph = (exp: AtomicExp | VarDecl, idGen: IdGen): Resul
     isVarDecl(exp) ? makeOk(makeAtomicGraph(makeNodeDecl(idGen(exp.tag), `"${exp.tag}(${exp.var})"`))) :
     makeFailure("not a valid AtomicExp"); // not suppose to reach here
 
-const L4DefineSetBindToNode = (exp: DefineExp | Binding | SetExp, idGen: IdGen): Result<CompoundGraph> => 
-    safe2((varSubGraph: GraphContent, valSubGraph: GraphContent): Result<CompoundGraph> => {
-        const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
-        return makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root), varSubGraph.nodeDecl, 'var'),
+const L4DefineSetBindToNode = (exp: DefineExp | Binding | SetExp, idGen: IdGen, first: boolean): Result<CompoundGraph> => {
+    const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
+    return safe2((varSubGraph: GraphContent, valSubGraph: GraphContent): Result<CompoundGraph> => {
+        return makeOk(makeCompoundGraph(root, [makeEdge(first ? root : declToRef(root), varSubGraph.nodeDecl, 'var'),
             makeEdge(declToRef(root), valSubGraph.nodeDecl, 'val')]
             .concat(varSubGraph.edges).concat(valSubGraph.edges)));
     })
-    (mapL4ToGraphContent(exp.var, idGen), mapL4ToGraphContent(exp.val, idGen));
+    (mapL4ToGraphContent(exp.var, idGen, false), mapL4ToGraphContent(exp.val, idGen, false));
+}
 
-const L4IfExpToNode = (exp: IfExp, idGen: IdGen): Result<CompoundGraph> => 
-    safe3((test: GraphContent, then: GraphContent, alt: GraphContent): Result<CompoundGraph> => {
-        const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
-        return makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root), test.nodeDecl, 'test'),
+const L4IfExpToNode = (exp: IfExp, idGen: IdGen, first: boolean): Result<CompoundGraph> => {
+    const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
+    return safe3((test: GraphContent, then: GraphContent, alt: GraphContent): Result<CompoundGraph> => {
+        return makeOk(makeCompoundGraph(root, [makeEdge(first ? root : declToRef(root), test.nodeDecl, 'test'),
             makeEdge(declToRef(root), then.nodeDecl, 'then'),
             makeEdge(declToRef(root), alt.nodeDecl, 'alt')]
             .concat(test.edges).concat(then.edges).concat(test.edges)));
     })
-    (mapL4ToGraphContent(exp.test, idGen), mapL4ToGraphContent(exp.then, idGen), mapL4ToGraphContent(exp.alt, idGen));
+    (mapL4ToGraphContent(exp.test, idGen, false), mapL4ToGraphContent(exp.then, idGen, false), mapL4ToGraphContent(exp.alt, idGen, false));
+}
     
-const L4ProcExpToNode = (exp: ProcExp, idGen: IdGen): Result<CompoundGraph> => 
-    safe2((args: GraphContent, body: GraphContent): Result<CompoundGraph> => {
-        const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
-        return makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root), args.nodeDecl, 'args'),
+const L4ProcExpToNode = (exp: ProcExp, idGen: IdGen, first: boolean): Result<CompoundGraph> => {
+    const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
+    return safe2((args: GraphContent, body: GraphContent): Result<CompoundGraph> => {
+        return makeOk(makeCompoundGraph(root, [makeEdge(first ? root : declToRef(root), args.nodeDecl, 'args'),
          makeEdge(declToRef(root), body.nodeDecl, 'body')].concat(args.edges).concat(body.edges)));
     })
-    (bind(mapResult((e: VarDecl) => mapL4ToGraphContent(e, idGen), exp.args), (args: GraphContent[]) => {
+    (bind(mapResult((e: VarDecl) => mapL4ToGraphContent(e, idGen, false), exp.args), (args: GraphContent[]) => {
         const root: NodeDecl = makeNodeDecl(idGen('Args'), ':');
         return makeOk(makeCompoundGraph(root, reduce((acc: Edge[], curr: Edge[]) => acc.concat(curr),
             map((g: GraphContent) => makeEdge(declToRef(root), g.nodeDecl), args),
             map((g): Edge[] => g.edges, args))))
     }), 
-    bind(mapResult((e: CExp) => mapL4ToGraphContent(e, idGen), exp.body), (exps: GraphContent[]) => {
+    bind(mapResult((e: CExp) => mapL4ToGraphContent(e, idGen, false), exp.body), (exps: GraphContent[]) => {
         const root: NodeDecl = makeNodeDecl(idGen('Body'), ':');
         return makeOk(makeCompoundGraph(root, 
             reduce((acc: Edge[], curr: Edge[]) => acc.concat(curr),
             map((g: GraphContent) => makeEdge(declToRef(root), g.nodeDecl), exps),
             map((g): Edge[] => g.edges, exps))))
     }));
+}
 
-const L4LetExpToNode = (exp: LetExp | LetrecExp, idGen: IdGen): Result<CompoundGraph> => 
-    safe2((bindings: GraphContent, body: GraphContent): Result<CompoundGraph> => {
-        const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
-        return makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root), bindings.nodeDecl, 'bindings'),
+const L4LetExpToNode = (exp: LetExp | LetrecExp, idGen: IdGen, first: boolean): Result<CompoundGraph> => {
+    const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
+    return safe2((bindings: GraphContent, body: GraphContent): Result<CompoundGraph> => {
+        return makeOk(makeCompoundGraph(root, [makeEdge(first ? root : declToRef(root), bindings.nodeDecl, 'bindings'),
             makeEdge(declToRef(root), body.nodeDecl, 'body')].concat(bindings.edges).concat(body.edges)));
     })
-    (bind(mapResult((b: Binding) => L4DefineSetBindToNode(b, idGen), exp.bindings), (bindings: GraphContent[]) => {
+    (bind(mapResult((b: Binding) => L4DefineSetBindToNode(b, idGen, false), exp.bindings), (bindings: GraphContent[]) => {
         const root: NodeDecl = makeNodeDecl(idGen('Bindings'), ':');
         return makeOk(makeCompoundGraph(root, reduce((acc: Edge[], curr: Edge[]) => acc.concat(curr),
             map((g: GraphContent) => makeEdge(declToRef(root), g.nodeDecl), bindings),
             map((g): Edge[] => g.edges, bindings))))
     }), 
-    bind(mapResult((e: CExp) => mapL4ToGraphContent(e, idGen), exp.body), (exps: GraphContent[]) => {
+    bind(mapResult((e: CExp) => mapL4ToGraphContent(e, idGen, false), exp.body), (exps: GraphContent[]) => {
         const root: NodeDecl = makeNodeDecl(idGen('Body'), ':');
         return makeOk(makeCompoundGraph(root, reduce((acc: Edge[], curr: Edge[]) => acc.concat(curr),
             map((g: GraphContent) => makeEdge(declToRef(root), g.nodeDecl), exps),
             map((g): Edge[] => g.edges, exps))))
     }));
+}
 
-const L4AppExpToNode = (exp: AppExp, idGen: IdGen): Result<CompoundGraph> => 
-    safe2((rator: GraphContent, rands: GraphContent): Result<CompoundGraph> => {
-        const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
-        return makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root), rator.nodeDecl, 'rator'),
+const L4AppExpToNode = (exp: AppExp, idGen: IdGen, first: boolean): Result<CompoundGraph> => {
+    const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
+    return safe2((rator: GraphContent, rands: GraphContent): Result<CompoundGraph> => {
+        return makeOk(makeCompoundGraph(root, [makeEdge(first ? root: declToRef(root), rator.nodeDecl, 'rator'),
          makeEdge(declToRef(root), rands.nodeDecl, 'rands')].concat(rator.edges).concat(rands.edges)));
     })
-    (mapL4ToGraphContent(exp.rator, idGen), 
-    bind(mapResult((e: CExp) => mapL4ToGraphContent(e, idGen), exp.rands), (exps: GraphContent[]) => {
+    (mapL4ToGraphContent(exp.rator, idGen, false), 
+    bind(mapResult((e: CExp) => mapL4ToGraphContent(e, idGen, false), exp.rands), (exps: GraphContent[]) => {
         const root: NodeDecl = makeNodeDecl(idGen('rands'), ':');
         return makeOk(makeCompoundGraph(root, 
             reduce((acc: Edge[], curr: Edge[]) => acc.concat(curr),
             map((g: GraphContent) => makeEdge(declToRef(root), g.nodeDecl), exps),
             map((g): Edge[] => g.edges, exps))))
     }));
+}
 
-const L4LitExpToNode = (exp: LitExp, idGen: IdGen): Result<CompoundGraph> => 
-    bind(mapSexpToNode(exp.val, idGen), (exp: GraphContent) => {
-        const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
-        return makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root),exp.nodeDecl, 'val')].concat(exp.edges)))
+const L4LitExpToNode = (exp: LitExp, idGen: IdGen, first: boolean): Result<CompoundGraph> => {
+    const root: NodeDecl = makeNodeDecl(idGen(exp.tag), exp.tag);
+    return bind(mapSexpToNode(exp.val, idGen), (sexp: GraphContent) => {
+        return makeOk(makeCompoundGraph(root, [makeEdge(first ? root : declToRef(root),sexp.nodeDecl, 'val')].concat(sexp.edges)))
     })
+}
 
 const declToRef = (node: NodeDecl): NodeRef => makeNodeRef(node.id);
 
 const mapSexpToNode = (val: SExpValue, idGen: IdGen):Result<GraphContent> => 
-    (typeof val === 'number') ? makeOk(makeAtomicGraph(makeNodeDecl(idGen('number'), 'number'))):
-    (typeof val === 'boolean') ? makeOk(makeAtomicGraph(makeNodeDecl(idGen('boolean'), 'boolean'))):
-    (typeof val === 'string') ? makeOk(makeAtomicGraph(makeNodeDecl(idGen('string'), 'string'))):
+    (typeof val === 'number') ? makeOk(makeAtomicGraph(makeNodeDecl(idGen('number'), `"number(${val})"`))):
+    (typeof val === 'boolean') ? makeOk(makeAtomicGraph(makeNodeDecl(idGen('boolean'), `"boolean(${val ? '#t' : '#f'})"`))) :
+    (typeof val === 'string') ? makeOk(makeAtomicGraph(makeNodeDecl(idGen('string'), `"$string(${val})"`))):
     isPrimOp(val) ? makeOk(makeAtomicGraph(makeNodeDecl(idGen('PrimOp'), 'PrimOp'))):
-    isSymbolSExp(val) ? makeOk(makeAtomicGraph(makeNodeDecl(idGen('SymbolSExp'), 'SymbolSExp'))):
-    isEmptySExp(val) ? makeOk(makeAtomicGraph(makeNodeDecl(idGen('EmptySExp'), 'EmptySExp'))):
-    isCompoundSExp(val) ? safe2((val1: GraphContent, val2: GraphContent): Result<GraphContent> => {
-        const root: NodeDecl = makeNodeDecl(idGen(val.tag), val.tag);
-        return makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root), val1.nodeDecl, 'val1'),
-         makeEdge(declToRef(root), val2.nodeDecl, 'val2')].concat(val1.edges).concat(val2.edges)));
-    })(mapSexpToNode(val.val1, idGen), mapSexpToNode(val.val2, idGen)):
+    isSymbolSExp(val) ? makeOk(makeAtomicGraph(makeNodeDecl(idGen(val.tag), `"${val.tag}(${val.val})"`))):
+    isEmptySExp(val) ? makeOk(makeAtomicGraph(makeNodeDecl(idGen(val.tag), val.tag))):
+    isCompoundSExp(val) ? compoundSexpToGraphContent(val, idGen) : 
     makeFailure("not valid SExpValue")
 
-   
+const compoundSexpToGraphContent = (val: CompoundSExp, idGen: IdGen): Result<GraphContent> => {
+    const root: NodeDecl = makeNodeDecl(idGen(val.tag), val.tag);
+    return safe2((val1: GraphContent, val2: GraphContent): Result<GraphContent> => 
+        makeOk(makeCompoundGraph(root, [makeEdge(declToRef(root), val1.nodeDecl, 'val1'),
+            makeEdge(declToRef(root), val2.nodeDecl, 'val2')].concat(val1.edges).concat(val2.edges))))
+        (mapSexpToNode(val.val1, idGen), mapSexpToNode(val.val2, idGen))
+}
+
 type IdGen = (v: string) => string;
 const makeIdGen = (): (v: string) => string => {
     let countNumExp: number = 0;
@@ -275,7 +294,7 @@ const makeIdGen = (): (v: string) => string => {
             countEmptySexp++;
             return `${v}_${countEmptySexp}`;
         }
-        if (v === "CompoundSExp"){
+        if (v === "CompoundSexp"){
             countCompSexp++;
             return `${v}_${countCompSexp}`;
         }
